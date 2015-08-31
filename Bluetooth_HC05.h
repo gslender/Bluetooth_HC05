@@ -1,20 +1,20 @@
 /* Bluetooth_HC05 library for Arduino wraps around the AT-command interface of
  * HC-05 Bluetooth module based on BlueCore4(TM) technology from Cambridge Silicon Radio.
- * 
- * See the article about these modules at http://robocraft.ru/blog/electronics/587.html
- * 
+ *
+ * Updated by Grant Slender (gslender@gmail.com)
+ *
  * Copyright (C) 2011 Artem Borisovskiy (bytefu@gmail.com), http://robocraft.ru
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- * 
+ *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
@@ -29,9 +29,14 @@
 #include "WProgram.h"
 #endif
 
+//#define HC05_DEBUG 1 // uncomment for debug messages
+#define HC05_SOFTSERIAL 1
+
+#ifdef HC05_SOFTSERIAL
+#include <SoftwareSerial.h>
+#endif
 #include <stdlib.h>
 #include <inttypes.h>
-#include <limits.h>
 
 enum
 {
@@ -46,7 +51,18 @@ enum
   HC05_ADDRESS_BUFSIZE = HC05_ADDRESS_MAXLEN + 1,
 };
 
-typedef uint8_t BluetoothAddress[6];
+typedef union
+{
+	uint8_t bytes[6];
+    struct
+    {
+		uint8_t nap[2];
+		uint8_t uap;
+		uint8_t lap[3];
+    } fields;
+
+} BluetoothAddress;
+
 typedef void (*InquiryCallback)(const BluetoothAddress &address);
 
 enum HC05_Mode { HC05_MODE_DATA = 0, HC05_MODE_COMMAND = 1 };
@@ -117,78 +133,57 @@ enum HC05_Result
 class Bluetooth_HC05: public Print
 {
 public:
+#ifdef HC05_SOFTSERIAL
+  Bluetooth_HC05(SoftwareSerial &serial);
+#else
   Bluetooth_HC05(HardwareSerial &serial = Serial);
-  ~Bluetooth_HC05();
+#endif
+  virtual ~Bluetooth_HC05();
 
-  void begin(unsigned baud_rate = 38400, uint8_t reset_pin = 0xFF,
-    uint8_t mode_pin = 0xFF, HC05_Mode mode = HC05_MODE_DATA);
+  void begin(long baud_rate = 38400, uint8_t mode_pin = 0xFF, HC05_Mode mode = HC05_MODE_COMMAND);
+  void changeMode(HC05_Mode mode = HC05_MODE_DATA);
   bool probe(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  void hardReset();
   bool softReset(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getVersion(char *buffer, size_t buffer_size,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getVersion(char *buffer, size_t buffer_size, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool restoreDefaults(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getAddress(BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getName(char *buffer, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setName(const char *name, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getRemoteDeviceName(const BluetoothAddress &address,
-    char *buffer, size_t buffer_size,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getRemoteDeviceName(const BluetoothAddress &address, char *buffer, size_t buffer_size, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getRole(HC05_Role &role, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setRole(HC05_Role role, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getDeviceClass(uint32_t &device_class, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setDeviceClass(uint32_t device_class, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getInquiryAccessCode(uint32_t &iac, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setInquiryAccessCode(uint32_t iac, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getInquiryMode(HC05_InquiryMode &inq_mode, int16_t &max_devices,
-    uint8_t &max_duration, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool setInquiryMode(HC05_InquiryMode inq_mode, int16_t max_devices,
-    uint8_t max_duration, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getInquiryMode(HC05_InquiryMode &inq_mode, int16_t &max_devices, uint8_t &max_duration, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool setInquiryMode(HC05_InquiryMode inq_mode, int16_t max_devices, uint8_t max_duration, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getPassword(char *buffer, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setPassword(const char *password, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getSerialMode(uint32_t &speed, uint8_t &stop_bits,
-    HC05_Parity &parity, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool setSerialMode(uint32_t speed, uint8_t stop_bits,
-    HC05_Parity parity, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getConnectionMode(HC05_Connection &connection_mode,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool setConnectionMode(HC05_Connection connection_mode,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getSerialMode(uint32_t &speed, uint8_t &stop_bits, HC05_Parity &parity, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool setSerialMode(uint32_t speed, uint8_t stop_bits, HC05_Parity parity, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getConnectionMode(HC05_Connection &connection_mode, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool setConnectionMode(HC05_Connection connection_mode, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool bind(const BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getAddressBound(BluetoothAddress &address,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getAddressBound(BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getLeds(bool &led_status, bool &led_connection, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setLeds(bool led_status, bool led_connection, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setPortState(uint8_t port_num, uint8_t port_state, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getMultiplePorts(uint16_t &port_states, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool setMultiplePorts(uint16_t port_states, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getInquiryAndPagingParams(uint16_t &inquiry_interval, uint16_t &inquiry_duration,
-    uint16_t &paging_interval, uint16_t &paging_duration,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool setInquiryAndPagingParams(uint16_t inquiry_interval, uint16_t inquiry_duration,
-    uint16_t paging_interval, uint16_t paging_duration,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getSniffParams(uint16_t &max_time, uint16_t &min_time,
-    uint16_t &retry_interval, uint16_t &sniff_timeout,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool setSniffParams(uint16_t max_time, uint16_t min_time,
-    uint16_t retry_interval, uint16_t sniff_timeout,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getInquiryAndPagingParams(uint16_t &inquiry_interval, uint16_t &inquiry_duration, uint16_t &paging_interval, uint16_t &paging_duration, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool setInquiryAndPagingParams(uint16_t inquiry_interval, uint16_t inquiry_duration, uint16_t paging_interval, uint16_t paging_duration, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getSniffParams(uint16_t &max_time, uint16_t &min_time, uint16_t &retry_interval, uint16_t &sniff_timeout, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool setSniffParams(uint16_t max_time, uint16_t min_time, uint16_t retry_interval, uint16_t sniff_timeout, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool enterSniffMode(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool exitSniffMode(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getSecurityAndEncryption(HC05_Security &security,
-    HC05_Encryption &encryption, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool setSecurityAndEncryption(HC05_Security security,
-    HC05_Encryption encryption, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool deleteDeviceFromList(const BluetoothAddress &address,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getSecurityAndEncryption(HC05_Security &security, HC05_Encryption &encryption, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool setSecurityAndEncryption(HC05_Security security, HC05_Encryption encryption, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool deleteDeviceFromList(const BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool deleteAllDevicesFromList(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool findDeviceInList(const BluetoothAddress &address,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool countDevicesInList(uint8_t &device_count,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
-  bool getLastAuthenticatedDevice(BluetoothAddress &address,
-    unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool findDeviceInList(const BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool countDevicesInList(uint8_t &device_count, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
+  bool getLastAuthenticatedDevice(BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool getState(HC05_State &state, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool initSerialPortProfile(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
 
@@ -198,20 +193,21 @@ public:
   bool connect(const BluetoothAddress &address, unsigned long timeout = HC05_DEFAULT_TIMEOUT);
   bool disconnect(unsigned long timeout = HC05_DEFAULT_TIMEOUT);
 
-  static bool parseBluetoothAddress(BluetoothAddress &address,
-    const char *address_str, char delimiter);
-  static int printBluetoothAddress(char *address_str,
-    const BluetoothAddress &address, char delimiter);
-  
+  static bool parseBluetoothAddress(BluetoothAddress &address, const char *address_str, char delimiter);
+  static int printBluetoothAddress(char *address_str, const BluetoothAddress &address, char delimiter);
+
   HC05_Result getLastError() const;
 
 private:
+#ifdef HC05_SOFTSERIAL
+  SoftwareSerial *m_uart;
+#else
   HardwareSerial *m_uart;
+#endif
   unsigned long m_timeout;
   unsigned long m_ticksAtStart;
 
   uint8_t m_modePin;
-  uint8_t m_resetPin;
   HC05_Result m_errorCode;
 
   bool readAddressWithCommand(BluetoothAddress &address,

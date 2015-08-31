@@ -1,17 +1,19 @@
 /* Bluetooth_HC05 library implementation.
- * 
+ *
+ * Updated by Grant Slender (gslender@gmail.com)
+ *
  * Copyright (C) 2011 Artem Borisovskiy (bytefu@gmail.com), http://robocraft.ru
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- * 
+ *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
@@ -41,7 +43,6 @@ unsigned long htoul(const char *str)
     return 0;
 
   long result = 0;
-  char sign = *str;
 
   while (*str)
   {
@@ -64,11 +65,19 @@ unsigned long htoul(const char *str)
 }
 
 
-Bluetooth_HC05::Bluetooth_HC05(HardwareSerial &serial):
+#ifdef HC05_SOFTSERIAL
+Bluetooth_HC05::Bluetooth_HC05(SoftwareSerial &serial):
   m_uart(&serial), m_timeout(HC05_DEFAULT_TIMEOUT), m_ticksAtStart(millis()),
-  m_modePin(0xFF), m_resetPin(0xFF), m_errorCode(HC05_OK)
+  m_modePin(0xFF), m_errorCode(HC05_OK)
 {
 }
+#else
+  Bluetooth_HC05::Bluetooth_HC05(HardwareSerial &serial):
+    m_uart(&serial), m_timeout(HC05_DEFAULT_TIMEOUT), m_ticksAtStart(millis()),
+    m_modePin(0xFF), m_errorCode(HC05_OK)
+  {
+  }
+#endif
 
 
 Bluetooth_HC05::~Bluetooth_HC05()
@@ -81,23 +90,24 @@ HC05_Result Bluetooth_HC05::getLastError() const
   return m_errorCode;
 }
 
-
-void Bluetooth_HC05::begin(unsigned baud_rate, uint8_t reset_pin,
-  uint8_t mode_pin, HC05_Mode mode)
+void Bluetooth_HC05::begin(long baud_rate, uint8_t mode_pin, HC05_Mode mode)
 {
   m_uart->begin(baud_rate);
-
-  m_resetPin = reset_pin;
-  pinMode(m_resetPin, OUTPUT);
-  digitalWrite(m_resetPin, HIGH);
 
   m_modePin = mode_pin;
   pinMode(m_modePin, OUTPUT);
   digitalWrite(m_modePin, (mode == HC05_MODE_DATA ? LOW : HIGH));
 
-  hardReset();
+  softReset();
 }
 
+void Bluetooth_HC05::changeMode(HC05_Mode mode)
+{
+  pinMode(m_modePin, OUTPUT);
+  digitalWrite(m_modePin, (mode == HC05_MODE_DATA ? LOW : HIGH));
+
+  softReset();
+}
 
 bool Bluetooth_HC05::probe(unsigned long timeout)
 {
@@ -105,17 +115,6 @@ bool Bluetooth_HC05::probe(unsigned long timeout)
   writeCommand(0);
   return readOperationResult();
 }
-
-
-void Bluetooth_HC05::hardReset()
-{
-  digitalWrite(m_resetPin, LOW);
-  delay(6);
-  digitalWrite(m_resetPin, HIGH);
-
-  m_errorCode = HC05_OK;
-}
-
 
 bool Bluetooth_HC05::softReset(unsigned long timeout)
 {
@@ -955,24 +954,32 @@ bool Bluetooth_HC05::inquire(InquiryCallback callback, unsigned long timeout)
   PGM_STRING_MAPPED_TO_RAM(command, "INQ");
   writeCommand(command);
 
+  bool result = false;
+
   while (!isOperationTimedOut())
   {
-    if (m_uart->peek() != '+')
-      break;
 
-    char response[HC05_ADDRESS_BUFSIZE + 10];
+    char response[HC05_ADDRESS_BUFSIZE + 15];
     PGM_STRING_MAPPED_TO_RAM(response_pattern, "+INQ:");
     const char *address_part;
-    address_part = readResponseWithPrefix(response, sizeof(response), response_pattern);
+
+    size_t response_length = readLine(response, sizeof(response));
+    PGM_STRING_MAPPED_TO_RAM(OK, "OK");
+    if (strcmp(response, OK) == 0) {
+    	result = true;
+    	break;
+    }
+    address_part = skipPrefix(response, response_length, response_pattern);
 
     BluetoothAddress address;
     parseBluetoothAddress(address, address_part, ':');
 
-    if (callback)
-      callback(address);
+    if (callback) {
+        callback(address);
+    }
   }
 
-  return readOperationResult();
+  return result;
 }
 
 
@@ -1038,7 +1045,7 @@ bool Bluetooth_HC05::readAddressWithCommand(BluetoothAddress &address,
   const char *command_name, unsigned long timeout)
 {
   startOperation(timeout);
-  memset(address, 0, sizeof(BluetoothAddress));
+  memset(address.bytes, 0, sizeof(BluetoothAddress));
 
   if (!command_name)
     return false;
@@ -1106,18 +1113,33 @@ void Bluetooth_HC05::writeCommand(const char *command, const char *arg)
 {
   PGM_STRING_MAPPED_TO_RAM(AT, "AT");
   m_uart->print(AT);
+#ifdef HC05_DEBUG
+  Serial.print(AT);
+#endif
 
   if (command && command[0] != 0)
   {
     m_uart->write('+');
     m_uart->print(command);
+#ifdef HC05_DEBUG
+    Serial.write('+');
+    Serial.print(command);
+#endif
   }
 
-  if (arg && arg[0] != 0)
+  if (arg && arg[0] != 0) {
     m_uart->print(arg);
+#ifdef HC05_DEBUG
+    Serial.print(arg);
+#endif
+  }
 
   PGM_STRING_MAPPED_TO_RAM(EOL, "\r\n");
   m_uart->print(EOL);
+
+#ifdef HC05_DEBUG
+  Serial.print(EOL);
+#endif
 }
 
 
@@ -1143,11 +1165,16 @@ size_t Bluetooth_HC05::readLine(char *buffer, size_t buffer_size)
   EXIT_LOOP:
     break;
   }
+#ifdef HC05_DEBUG
+  *p = 0;
+  Serial.print(buffer);
+#endif
 
   if (p[-1] == '\n' && p[-2] == '\r')
     p -= 2;
 
   *p = 0;
+
 
   PGM_STRING_MAPPED_TO_RAM(error_prefix, "ERROR:(");
 
@@ -1167,7 +1194,7 @@ bool Bluetooth_HC05::parseBluetoothAddress(
   /* Address should look like "+ADDR:<NAP>:<UAP>:<LAP>",
    * where actual address will look like "1234:56:abcdef".
    */
-  if (!address || !address_str)
+  if (!address.bytes || !address_str)
     return false;
 
   char *digits_ptr = const_cast<char*>(address_str);
@@ -1187,12 +1214,12 @@ bool Bluetooth_HC05::parseBluetoothAddress(
   uint8_t LAP[4];
   *((uint32_t*)LAP) = htoul(++digits_ptr);
 
-  address[0] = NAP[1];
-  address[1] = NAP[0];
-  address[2] = UAP;
-  address[3] = LAP[2];
-  address[4] = LAP[1];
-  address[5] = LAP[0];
+  address.bytes[0] = NAP[1];
+  address.bytes[1] = NAP[0];
+  address.bytes[2] = UAP;
+  address.bytes[3] = LAP[2];
+  address.bytes[4] = LAP[1];
+  address.bytes[5] = LAP[0];
 
   return true;
 }
@@ -1201,19 +1228,19 @@ bool Bluetooth_HC05::parseBluetoothAddress(
 int Bluetooth_HC05::printBluetoothAddress(char *address_str,
   const BluetoothAddress &address, char delimiter)
 {
-  if (!address || !address_str)
+  if (!address.bytes || !address_str)
     return 0;
 
   uint8_t NAP[2];
-  NAP[0] = address[1];
-  NAP[1] = address[0];
+  NAP[0] = address.bytes[1];
+  NAP[1] = address.bytes[0];
 
-  uint8_t UAP = address[2];
+  uint8_t UAP = address.bytes[2];
 
   uint8_t LAP[4];
-  LAP[0] = address[5];
-  LAP[1] = address[4];
-  LAP[2] = address[3];
+  LAP[0] = address.bytes[5];
+  LAP[1] = address.bytes[4];
+  LAP[2] = address.bytes[3];
   LAP[3] = 0;
 
   PGM_STRING_MAPPED_TO_RAM(format, "%x%c%x%c%lx");
@@ -1267,6 +1294,10 @@ void Bluetooth_HC05::startOperation(unsigned long timeout)
 
 bool Bluetooth_HC05::isOperationTimedOut() const
 {
+#ifdef HC05_DEBUG
+	if ( operationDuration() >= m_timeout)
+		Serial.println("*** OperationTimedOut");
+#endif
   return operationDuration() >= m_timeout;
 }
 
