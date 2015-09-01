@@ -1,0 +1,5 @@
+.pioenvs/
+.cproject
+.project
+.sconsign.dblite
+platformio.ini
